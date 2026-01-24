@@ -1,2 +1,2 @@
 # Repo marker
-value = ok
+value = "ok"
