@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$RepoPath = "",
     [string]$PthName = "repo.pth",
     [switch]$DryRun
@@ -24,6 +24,8 @@ if (-not (Test-Path -LiteralPath $activate)) {
 
 . $activate
 
+$env:PYTHONDONTWRITEBYTECODE = "1"
+
 if ([string]::IsNullOrWhiteSpace($RepoPath)) {
     $leaf = $WorkrootItem.Name
     if ($leaf -notlike "*-workroot") {
@@ -35,6 +37,9 @@ if ([string]::IsNullOrWhiteSpace($RepoPath)) {
 
 if (-not (Test-Path -LiteralPath $RepoPath)) {
     throw "Repo path does not exist: '$RepoPath'. Create it or pass -RepoPath."
+}
+if (-not (Test-Path -LiteralPath $RepoPath -PathType Container)) {
+    throw "Repo path is not a folder: '$RepoPath'. Pass -RepoPath to a directory or rename the workroot."
 }
 
 $site = python -c "import site; print(site.getsitepackages()[0])"
@@ -59,3 +64,4 @@ try {
     Write-Warning "Import test failed. Ensure 'repo_marker.py' exists in the repo root (or adjust the test import)."
     throw
 }
+

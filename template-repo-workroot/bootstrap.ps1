@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$RepoPath = "",
     [switch]$NoBytecode = $true,
     [switch]$DryRun
@@ -38,6 +38,13 @@ if ($DryRun) {
 
 if ($NoBytecode) { $env:PYTHONDONTWRITEBYTECODE = "1" }
 $env:REPO = $RepoPath
-
 Write-Host "workroot:" $Workroot
 Write-Host "repo:    " $env:REPO
+Write-Host ""
+Write-Host "Bootstrap active. Use 'exit' to return to the previous shell."
+
+$toolsPath = Join-Path $Workroot "workroot_tools.ps1"
+if (Test-Path -LiteralPath $toolsPath) { . $toolsPath }
+if (Get-Command -Name wr -ErrorAction SilentlyContinue) {
+    Write-Host "Run commands with manifests using: wr <command> [args...]"
+}

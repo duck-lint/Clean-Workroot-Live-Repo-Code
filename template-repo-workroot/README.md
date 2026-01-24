@@ -1,4 +1,4 @@
-# Project Template: Repo + Workroot (PowerShell / Python)
+﻿# Project Template: Repo + Workroot (PowerShell / Python)
 
 This setup gives you a **repeatable, copy‑pasteable project template** with a clean separation between:
 
@@ -97,6 +97,8 @@ You never run `.ps1` files directly — you always go through `boot.cmd`.
 
 Run this **once** after copying/renaming folders.
 
+Note: `boot.cmd init.ps1` opens a new PowerShell session, runs init, then drops you into the bootstrap session. Do your work in that session; type `exit` to return.
+
 It will:
 
 - Create `.venv` **if missing**
@@ -182,6 +184,8 @@ cd C:\Path\To\Projects\Project-A-workroot
 .\boot.cmd bootstrap.ps1
 ```
 
+You are now in a new PowerShell session with the environment set. Stay in this session for work; use `exit` to return.
+
 After this:
 
 - `python` uses the venv
@@ -197,6 +201,19 @@ Get-ChildItem
 ```
 
 ---
+
+## Run manifests
+
+Run manifests are written under `manifests\` in the workroot. This is disposable workroot state and safe to delete.
+
+Example:
+
+```powershell
+.\boot.cmd bootstrap.ps1
+wr python $env:REPO\some_script.py --arg1 x
+```
+
+Each run writes a JSON manifest: `manifests\run_<run_id>.json` in the workroot.
 
 ## Python Version Control (Important)
 
@@ -331,3 +348,13 @@ No global policy changes are required.
 - **Keep repos clean**
 
 This pattern scales cleanly across many projects without hidden state or global side effects.
+
+
+
+
+
+
+
+
+
+
