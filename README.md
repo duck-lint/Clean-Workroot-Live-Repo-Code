@@ -42,7 +42,7 @@ While the venv is activated:
 `$site = python -c "import site; print(site.getsitepackages()[0])" $site`
 ### 1.2 Write a `.pth` file pointing to your repo
 Set the repo path, then write it:
-`$REPO = "C:\Path\To\Your\Repo" Set-Content -Path (Join-Path $site "pipeline_repo.pth") -Value $REPO`
+`$REPO = "C:\Path\To\Your\Repo" Set-Content -Path (Join-Path $site "repo.pth") -Value $REPO`
 ### 1.3 Verify it worked
 `python -c "import common; print(common.__file__)"`
 You should see a path pointing inside your repo.
