@@ -1,82 +1,73 @@
-### Goal
-- a **clean working directory** (“workroot”) where outputs land (`stage_0_raw`, `stage_1_clean`, etc.)
-- a separate **git repo** where your pipeline scripts live (kept clean for commits)
-- Python able to import repo modules (`common.py`, etc.) while running from the workroot
-- no `__pycache__` clutter in the repo
+## Goal
 
-This workflow accomplishes that by:
-1. keeping the current directory as the “output root”
-2. telling the venv’s Python to import code from the repo via a `.pth` file
-3. optionally disabling bytecode writes in the session
+A clean “workroot” folder where outputs land and a separate git repo where pipeline scripts live (clean for commits). Python can import repo modules while you run from the workroot. No __pycache__ clutter in the repo.
 
 ---
 
-## Definitions
-- **workroot**: the folder you stand in when running commands; contains `.venv` and your generated outputs
-- **repo**: the git directory containing the pipeline scripts
-- **bytecode**: the files that end up in the `__pycache__` dir
+## How this works:
+You run commands from the workroot (so outputs land there)
+A .pth file in the venv tells Python to add the repo folder to sys.path
+Optionally, you disable bytecode generation to prevent __pycache__
+Definitions
 
-Example:
-- workroot: `C:\path\to\workroot`
-- repo: `C:\path\to\Git_repo`
+**workroot**: the folder you run from (contains .venv + outputs)
 
----
+**repo**: the git directory containing your pipeline scripts
 
-## Step 0: Create / activate the (.venv) in your workroot
+**bytecode**: .pyc files that show up in __pycache__
 
-From workroot:
+
+**Example paths**:
 ```
-py -V:3.11 -m venv .venv
+workroot: C:\path\to\workroot
+repo: C:\path\to\Git_repo
+```
+
+### Step 0: Create / activate the venv in the workroot
+From workroot:
+```PowerShell
+py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python --version
 ```
-Python .venv specific to cuda/pytorch build as of January 2026. Install requirements as necessary.
+(Install your requirements after this as needed.)
 
----
 
-## Step 1: Make the venv import modules from the repo (the `.pth` trick)
+### Step 1: Make the venv import modules from the repo (.pth trick)
 
-A `.pth` file placed in **site-packages** adds a directory to Python’s import path _for that venv_.
-### 1.1 Get the venv site-packages path
+#### 1.1 Get the venv site‑packages path
 While the venv is activated:
-`$site = python -c "import site; print(site.getsitepackages()[0])" $site`
-### 1.2 Write a `.pth` file pointing to your repo
-Set the repo path, then write it:
-`$REPO = "C:\Path\To\Your\Repo" Set-Content -Path (Join-Path $site "repo.pth") -Value $REPO`
-### 1.3 Verify it worked
-`python -c "import common; print(common.__file__)"`
-You should see a path pointing inside your repo.
-✅ After this, the venv will always “see” your repo code until the venv is **deleted**.
-
----
-
-## Step 2: Optional: prevent `__pycache__` from being created
-This stops Python from writing `.pyc` bytecode files (and thus avoids `__pycache__`).
-For the current terminal session:
-`$env:PYTHONDONTWRITEBYTECODE = "1"`
-Verify:
-`python -c "import sys; print(sys.dont_write_bytecode)"`
-**Important:** this is session-only unless you make it persistent (see below).
-
----
-
-## Step 3: Run repo scripts while outputs land in the workroot
-Because you’re standing in the workroot, relative paths resolve “at your feet.”
-Example:
 ```PowerShell
-python "$REPO\init_folders.py" --root .
-
-python "$REPO\00_stage0_copy_raw.py" --input_path "C:\Path\To\Vault" --stage0_dir stage_0_raw
-
-python "$REPO\01_stage1_clean.py" --stage0_path stage_0_raw --stage1_dir stage_1_clean --yaml_mode lenient
-
-python "$REPO\02_stage2_chunk.py" --stage0_path stage_0_raw --stage1_dir stage_1_clean --out_dir stage_2_chunks --prefer_stage1 --yaml_mode lenient
-
-python "$REPO\merge_chunks_jsonl.py" --chunks_dir stage_2_chunks --output_jsonl stage_2_chunks_merged.jsonl
-
-python "$REPO\03_stage3_build_chroma.py" --chunks_jsonl stage_2_chunks_merged.jsonl --persist_dir stage_3_chroma --collection v1_chunks --mode upsert --device auto
+$site = python -c "import site; print(site.getsitepackages()[0])"
+$site
 ```
-All folders like `stage_0_raw/` are created in the workroot, not the repo.
+#### 1.2 Write a .pth file pointing to your repo
+Replace with your repo path:
+```PowerShell
+$REPO = "C:\Path\To\Your\Repo"
+Set-Content -Path (Join-Path $site "repo.pth") -Value $REPO
+```
+#### 1.3 Verify it worked
+Use a unique module name to avoid collisions:
+```PowerShell
+python -c "import repo_marker; print(repo_marker.__file__)"
+```
+You should see a path inside your repo. ✅
+
+Tip: Don’t name your test file test.py — it collides with Python’s built‑in test package.
+
+
+### Step 2: Optional: prevent __pycache__ from being created
+This stops Python from writing .pyc bytecode files:
+```PowerShell
+$env:PYTHONDONTWRITEBYTECODE = "1"
+python -c "import sys; print(sys.dont_write_bytecode)"
+```
+Note: this is session‑only unless you make it permanent.
+
+
+### Step 3: Run repo scripts while outputs land in the workroot
+Because you’re standing in the workroot, output folders land there, while imports resolve from the repo.
 
 ---
 
@@ -129,3 +120,22 @@ Then each session you run:
 `.\bootstrap.ps1`
 (Preferred because it’s explicit and doesn’t affect unrelated shells.)
 *Still requires bypass execution policy.* 
+
+---
+
+## Quick health check (copy/paste)
+```PowerShell
+@'
+import sys, site
+print("exe:", sys.executable)
+print("site-packages:", site.getsitepackages()[0])
+print("repo in sys.path:", r"C:\Path\To\Your\Repo" in sys.path)
+try:
+    import repo_marker
+    print("repo_marker:", repo_marker.__file__)
+except Exception as e:
+    print("import failed:", type(e).__name__, e)
+'@ | .\.venv\Scripts\python -
+```
+Replace C:\Path\To\Your\Repo with your real repo path.
+
