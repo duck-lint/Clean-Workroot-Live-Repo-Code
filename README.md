@@ -22,7 +22,7 @@ Example:
 
 ---
 
-## Step 0 — Create / activate the (.venv) in your workroot
+## Step 0: Create / activate the (.venv) in your workroot
 
 From workroot:
 ```
@@ -34,7 +34,7 @@ Python .venv specific to cuda/pytorch build as of January 2026. Install requirem
 
 ---
 
-## Step 1 — Make the venv import modules from the repo (the `.pth` trick)
+## Step 1: Make the venv import modules from the repo (the `.pth` trick)
 
 A `.pth` file placed in **site-packages** adds a directory to Python’s import path _for that venv_.
 ### 1.1 Get the venv site-packages path
@@ -50,7 +50,7 @@ You should see a path pointing inside your repo.
 
 ---
 
-## Step 2 — Optional: prevent `__pycache__` from being created
+## Step 2: Optional: prevent `__pycache__` from being created
 This stops Python from writing `.pyc` bytecode files (and thus avoids `__pycache__`).
 For the current terminal session:
 `$env:PYTHONDONTWRITEBYTECODE = "1"`
@@ -60,7 +60,7 @@ Verify:
 
 ---
 
-## Step 3 — Run repo scripts while outputs land in the workroot
+## Step 3: Run repo scripts while outputs land in the workroot
 Because you’re standing in the workroot, relative paths resolve “at your feet.”
 Example:
 ```PowerShell
