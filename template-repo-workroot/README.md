@@ -211,9 +211,12 @@ Example:
 ```powershell
 .\boot.cmd bootstrap.ps1
 wr python $env:REPO\some_script.py --arg1 x
+wr -Snapshot python $env:REPO\some_script.py --arg1 x
 ```
 
 Each run writes a JSON manifest: `manifests\run_<run_id>.json` in the workroot.
+
+Snapshot diffs are off by default. Use: `wr -Snapshot <command> [args...]` to include file change lists.
 
 ## Python Version Control (Important)
 
@@ -348,6 +351,10 @@ No global policy changes are required.
 - **Keep repos clean**
 
 This pattern scales cleanly across many projects without hidden state or global side effects.
+
+
+
+
 
 
 

@@ -4,7 +4,7 @@ $ErrorActionPreference = "Stop"
 $script:Workroot = $PSScriptRoot
 $script:ManifestsDir = Join-Path $script:Workroot "manifests"
 
-function Get-RelativePath {
+function global:Get-RelativePath {
     param(
         [Parameter(Mandatory = $true)][string]$BasePath,
         [Parameter(Mandatory = $true)][string]$FullPath
@@ -16,7 +16,7 @@ function Get-RelativePath {
     return $FullPath
 }
 
-function Get-WorkrootSnapshot {
+function global:Get-WorkrootSnapshot {
     param([Parameter(Mandatory = $true)][string]$Root)
 
     $rootNorm = $Root.TrimEnd('\','/')
@@ -47,7 +47,7 @@ function Get-WorkrootSnapshot {
     return $entries
 }
 
-function Get-PythonInfo {
+function global:Get-PythonInfo {
     try {
         $json = & python -c "import json,sys; print(json.dumps({'executable':sys.executable,'version':sys.version}))"
         if ($json) { return ($json | ConvertFrom-Json) }
@@ -57,7 +57,7 @@ function Get-PythonInfo {
     return $null
 }
 
-function Get-GitInfo {
+function global:Get-GitInfo {
     param([string]$RepoPath)
     try {
         if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return $null }
@@ -81,7 +81,7 @@ function Get-GitInfo {
     }
 }
 
-function Format-CommandLine {
+function global:Format-CommandLine {
     param([string]$Command, [string[]]$Args)
     $parts = @()
     $parts += $Command
@@ -93,13 +93,13 @@ function Format-CommandLine {
     return ($quoted -join ' ')
 }
 
-function Invoke-WorkrootCommand {
+function global:Invoke-WorkrootCommand {
     [CmdletBinding()]
     param(
         [Parameter(Position = 0, Mandatory = $true)][string]$Command,
         [Parameter(ValueFromRemainingArguments = $true)][string[]]$Args,
         [switch]$DryRun,
-        [switch]$NoSnapshot
+        [switch]$Snapshot
     )
 
     $workroot = $script:Workroot
@@ -118,7 +118,7 @@ function Invoke-WorkrootCommand {
         Write-Host "[dry-run] repo:     $repoPath"
         Write-Host "[dry-run] command:  $(Format-CommandLine -Command $Command -Args $Args)"
         Write-Host "[dry-run] manifest: $manifestPath"
-        if (-not $NoSnapshot) { Write-Host "[dry-run] snapshot: enabled" }
+        if ($Snapshot) { Write-Host "[dry-run] snapshot: enabled" }
         return
     }
 
@@ -130,7 +130,7 @@ function Invoke-WorkrootCommand {
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
     $before = $null
-    if (-not $NoSnapshot) { $before = Get-WorkrootSnapshot -Root $workroot }
+    if ($Snapshot) { $before = Get-WorkrootSnapshot -Root $workroot }
 
     $runError = $null
     $success = $true
@@ -156,7 +156,7 @@ function Invoke-WorkrootCommand {
 
     $after = $null
     $changes = $null
-    if (-not $NoSnapshot) {
+    if ($Snapshot) {
         $after = Get-WorkrootSnapshot -Root $workroot
         $beforeIndex = @{}
         foreach ($e in $before) { $beforeIndex[$e.relative_path] = $e }
@@ -216,9 +216,9 @@ function Invoke-WorkrootCommand {
         env         = $envInfo
     }
 
-    if ($runError) { $manifest.error = $runError }
-    if (-not $NoSnapshot) {
-        $manifest.snapshot = [ordered]@{
+    if ($runError) { $manifest["error"] = $runError }
+    if ($Snapshot) {
+        $manifest["snapshot"] = [ordered]@{
             before  = $before
             after   = $after
             changes = $changes
