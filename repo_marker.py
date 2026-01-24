@@ -1,2 +1,0 @@
-# Repo marker
-value = "ok"
