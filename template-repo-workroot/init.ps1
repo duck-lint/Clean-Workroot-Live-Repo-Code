@@ -65,3 +65,9 @@ try {
     throw
 }
 
+$toolsPath = Join-Path $Workroot "workroot_tools.ps1"
+if (Test-Path -LiteralPath $toolsPath) { . $toolsPath }
+if (Get-Command -Name wr -ErrorAction SilentlyContinue) {
+    Write-Host "Run commands with manifests using: wr <command> [args...]"
+}
+

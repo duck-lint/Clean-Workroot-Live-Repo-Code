@@ -204,7 +204,7 @@ Get-ChildItem
 
 ## Run manifests
 
-Run manifests are written under `manifests\` in the workroot. This is disposable workroot state and safe to delete.
+Run manifests are written under `_workroot_manifests\` in the workroot. This is disposable workroot state and safe to delete.
 
 Example:
 
@@ -214,7 +214,9 @@ wr python $env:REPO\some_script.py --arg1 x
 wr -Snapshot python $env:REPO\some_script.py --arg1 x
 ```
 
-Each run writes a JSON manifest: `manifests\run_<run_id>.json` in the workroot.
+Each run writes a JSON manifest: `_workroot_manifests\run_<run_id>.json` in the workroot.
+
+Use `wr -IncludeUser <command> [args...]` to include the username in the manifest host block.
 
 Snapshot diffs are off by default. Use: `wr -Snapshot <command> [args...]` to include file change lists.
 
@@ -271,7 +273,7 @@ Safe to delete:
 - `.venv`
 - outputs
 - logs
-- manifests
+- _workroot_manifests
 
 To recover:
 ```powershell

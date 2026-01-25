@@ -2,7 +2,7 @@
 $ErrorActionPreference = "Stop"
 
 $script:Workroot = $PSScriptRoot
-$script:ManifestsDir = Join-Path $script:Workroot "manifests"
+$script:ManifestsDir = Join-Path $script:Workroot "_workroot_manifests"
 
 function global:Get-RelativePath {
     param(
@@ -23,6 +23,7 @@ function global:Get-WorkrootSnapshot {
     $excludeRoots = @(
         (Join-Path $rootNorm ".venv"),
         (Join-Path $rootNorm ".git"),
+        (Join-Path $rootNorm "_workroot_manifests"),
         (Join-Path $rootNorm "manifests")
     )
 
@@ -81,21 +82,28 @@ function global:Get-GitInfo {
     }
 }
 
+function global:Quote-CommandArg {
+    param([string]$Arg)
+    if ($null -eq $Arg) { return "" }
+    if ($Arg -match '[\s"''`$()\[\]{};|&<>]') {
+        return '"' + ($Arg -replace '"', '""') + '"'
+    }
+    return $Arg
+}
+
 function global:Format-CommandLine {
     param([string]$Exe, [string[]]$CmdArgs)
     $parts = @()
-    $parts += $Exe
+    if ($Exe) { $parts += $Exe }
     if ($CmdArgs) { $parts += $CmdArgs }
-    $quoted = $parts | ForEach-Object {
-        $s = $_
-        if ($s -match '[\s"]') { '"' + ($s -replace '"','\\"') + '"' } else { $s }
-    }
+    $quoted = $parts | ForEach-Object { Quote-CommandArg -Arg $_ }
     return ($quoted -join ' ')
 }
 
 function global:Invoke-WorkrootCommand {
     $dryRun = $false
     $snapshot = $false
+    $includeUser = $false
     $all = @()
     if ($args) { $all = @($args) }
 
@@ -107,12 +115,13 @@ function global:Invoke-WorkrootCommand {
         if ($all.Count -gt 1) { $all = $all[1..($all.Count - 1)] } else { $all = @() }
     } else {
         $i = 0
-        while ($i -lt $all.Count) {
+        :parse while ($i -lt $all.Count) {
             $a = $all[$i]
             switch ($a.ToLowerInvariant()) {
-                "-dryrun"   { $dryRun = $true; $i++; continue }
-                "-snapshot" { $snapshot = $true; $i++; continue }
-                default { break }
+                "-dryrun"   { $dryRun = $true; $i++; continue parse }
+                "-snapshot" { $snapshot = $true; $i++; continue parse }
+                "-includeuser" { $includeUser = $true; $i++; continue parse }
+                default     { break parse }
             }
         }
         if ($i -gt 0) {
@@ -222,6 +231,18 @@ function global:Invoke-WorkrootCommand {
     $pyInfo = Get-PythonInfo
     $gitInfo = Get-GitInfo -RepoPath $repoPath
 
+    $psEditionValue = $null
+    if ($PSVersionTable.PSEdition) { $psEditionValue = $PSVersionTable.PSEdition }
+
+    $hostInfo = [ordered]@{
+        powershell_version = $PSVersionTable.PSVersion.ToString()
+        powershell_edition = $psEditionValue
+        os                = [System.Environment]::OSVersion.VersionString
+        machine           = $env:COMPUTERNAME
+        username          = $null
+    }
+    if ($includeUser) { $hostInfo.username = $env:USERNAME }
+
     $manifest = [ordered]@{
         run_id      = $runId
         start_utc   = $startUtc.ToString("o")
@@ -239,6 +260,7 @@ function global:Invoke-WorkrootCommand {
         success     = [bool]$success
         python      = $pyInfo
         git         = $gitInfo
+        host        = $hostInfo
         env         = $envInfo
     }
 
@@ -262,4 +284,4 @@ Set-Alias -Name wr -Value Invoke-WorkrootCommand -Scope Global
 # Quick test (not executed):
 #   .\boot.cmd bootstrap.ps1
 #   wr python -c "print('hello')"
-#   # Expect: manifests\run_<run_id>.json created in the workroot
+#   # Expect: _workroot_manifests\run_<run_id>.json created in the workroot
