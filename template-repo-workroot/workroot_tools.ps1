@@ -82,10 +82,10 @@ function global:Get-GitInfo {
 }
 
 function global:Format-CommandLine {
-    param([string]$Command, [string[]]$Args)
+    param([string]$Exe, [string[]]$CmdArgs)
     $parts = @()
-    $parts += $Command
-    if ($Args) { $parts += $Args }
+    $parts += $Exe
+    if ($CmdArgs) { $parts += $CmdArgs }
     $quoted = $parts | ForEach-Object {
         $s = $_
         if ($s -match '[\s"]') { '"' + ($s -replace '"','\\"') + '"' } else { $s }
@@ -94,13 +94,39 @@ function global:Format-CommandLine {
 }
 
 function global:Invoke-WorkrootCommand {
-    [CmdletBinding()]
-    param(
-        [Parameter(Position = 0, Mandatory = $true)][string]$Command,
-        [Parameter(ValueFromRemainingArguments = $true)][string[]]$Args,
-        [switch]$DryRun,
-        [switch]$Snapshot
-    )
+    $dryRun = $false
+    $snapshot = $false
+    $all = @()
+    if ($args) { $all = @($args) }
+
+    if ($all.Count -eq 0) {
+        throw "Usage: wr <command> [args...]"
+    }
+
+    if ($all[0] -eq "--") {
+        if ($all.Count -gt 1) { $all = $all[1..($all.Count - 1)] } else { $all = @() }
+    } else {
+        $i = 0
+        while ($i -lt $all.Count) {
+            $a = $all[$i]
+            switch ($a.ToLowerInvariant()) {
+                "-dryrun"   { $dryRun = $true; $i++; continue }
+                "-snapshot" { $snapshot = $true; $i++; continue }
+                default { break }
+            }
+        }
+        if ($i -gt 0) {
+            if ($i -lt $all.Count) { $all = $all[$i..($all.Count - 1)] } else { $all = @() }
+        }
+    }
+
+    if ($all.Count -eq 0) {
+        throw "Usage: wr <command> [args...]"
+    }
+
+    $exe = $all[0]
+    $cmdArgs = @()
+    if ($all.Count -gt 1) { $cmdArgs = $all[1..($all.Count - 1)] }
 
     $workroot = $script:Workroot
     if (-not $workroot) { $workroot = (Get-Location).Path }
@@ -113,12 +139,12 @@ function global:Invoke-WorkrootCommand {
     $runId = "{0}_{1}" -f ([DateTime]::UtcNow.ToString("yyyyMMdd_HHmmss")), ([Guid]::NewGuid().ToString("N").Substring(0,6))
     $manifestPath = Join-Path $script:ManifestsDir ("run_{0}.json" -f $runId)
 
-    if ($DryRun) {
+    if ($dryRun) {
         Write-Host "[dry-run] workroot: $workroot"
         Write-Host "[dry-run] repo:     $repoPath"
-        Write-Host "[dry-run] command:  $(Format-CommandLine -Command $Command -Args $Args)"
+        Write-Host "[dry-run] command:  $(Format-CommandLine -Exe $exe -CmdArgs $cmdArgs)"
         Write-Host "[dry-run] manifest: $manifestPath"
-        if ($Snapshot) { Write-Host "[dry-run] snapshot: enabled" }
+        if ($snapshot) { Write-Host "[dry-run] snapshot: enabled" }
         return
     }
 
@@ -130,7 +156,7 @@ function global:Invoke-WorkrootCommand {
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
     $before = $null
-    if ($Snapshot) { $before = Get-WorkrootSnapshot -Root $workroot }
+    if ($snapshot) { $before = Get-WorkrootSnapshot -Root $workroot }
 
     $runError = $null
     $success = $true
@@ -139,7 +165,7 @@ function global:Invoke-WorkrootCommand {
     Push-Location $workroot
     try {
         $global:LASTEXITCODE = 0
-        & $Command @Args
+        & $exe @cmdArgs
         $success = $?
         if ($LASTEXITCODE -ne 0) { $exitCode = $LASTEXITCODE }
         elseif (-not $success) { $exitCode = 1 }
@@ -156,7 +182,7 @@ function global:Invoke-WorkrootCommand {
 
     $after = $null
     $changes = $null
-    if ($Snapshot) {
+    if ($snapshot) {
         $after = Get-WorkrootSnapshot -Root $workroot
         $beforeIndex = @{}
         foreach ($e in $before) { $beforeIndex[$e.relative_path] = $e }
@@ -205,9 +231,9 @@ function global:Invoke-WorkrootCommand {
         workroot    = $workroot
         repo        = $repoPath
         command     = [ordered]@{
-            command = $Command
-            args    = $Args
-            full    = (Format-CommandLine -Command $Command -Args $Args)
+            command = $exe
+            args    = $cmdArgs
+            full    = (Format-CommandLine -Exe $exe -CmdArgs $cmdArgs)
         }
         exit_code   = $exitCode
         success     = [bool]$success
@@ -217,7 +243,7 @@ function global:Invoke-WorkrootCommand {
     }
 
     if ($runError) { $manifest["error"] = $runError }
-    if ($Snapshot) {
+    if ($snapshot) {
         $manifest["snapshot"] = [ordered]@{
             before  = $before
             after   = $after
