@@ -20,6 +20,16 @@ $activate = Join-Path $Workroot ".venv\Scripts\Activate.ps1"
 if (-not (Test-Path -LiteralPath $activate)) {
     Write-Host "No venv found. Creating .venv in workroot..."
     py -m venv $venvDir
+    $req = Join-Path $Workroot "requirements.txt"
+    if (Test-Path -LiteralPath $req) {
+        $py = Join-Path $venvDir "Scripts\python.exe"
+        Write-Host "Installing workroot requirements..."
+        & $py -m pip install --upgrade pip
+        if ($LASTEXITCODE -ne 0) { throw "pip failed during upgrade." }
+        & $py -m pip install -r $req
+        if ($LASTEXITCODE -ne 0) { throw "pip failed installing workroot requirements." }
+        Write-Host "Workroot requirements installed."
+    }
 }
 
 . $activate
