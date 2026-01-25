@@ -192,6 +192,9 @@ After this:
 - Repo modules import correctly
 - `$env:REPO` works for tab completion
 - Outputs land in the workroot
+- Transcript is ON by default and stored in `_workroot_transcripts\` under the workroot
+  - Disable with: `.\boot.cmd bootstrap.ps1 -NoTranscript`
+  - Note: transcript files grow with output volume; avoid typing secrets
 
 Example:
 
@@ -215,6 +218,8 @@ wr -Snapshot python $env:REPO\some_script.py --arg1 x
 ```
 
 Each run writes a JSON manifest: `_workroot_manifests\run_<run_id>.json` in the workroot.
+
+To capture stdout/stderr into the manifest: `wr -CaptureOutput -- <command> [args...]`
 
 Use `wr -IncludeUser <command> [args...]` to include the username in the manifest host block.
 

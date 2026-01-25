@@ -100,10 +100,76 @@ function global:Format-CommandLine {
     return ($quoted -join ' ')
 }
 
+function global:Get-OutputEncoding {
+    param([string]$EncodingName)
+    $name = $EncodingName
+    if ([string]::IsNullOrWhiteSpace($name)) { $name = "utf8" }
+    try {
+        return [System.Text.Encoding]::GetEncoding(
+            $name,
+            [System.Text.EncoderFallback]::ReplacementFallback,
+            [System.Text.DecoderFallback]::ReplacementFallback
+        )
+    } catch {
+        return [System.Text.Encoding]::UTF8
+    }
+}
+
+function global:Read-OutputFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][int]$MaxBytes,
+        [Parameter(Mandatory = $true)][string]$EncodingName
+    )
+
+    $result = [ordered]@{
+        text      = ""
+        truncated = $false
+        error     = $null
+    }
+
+    try {
+        $fileInfo = Get-Item -LiteralPath $Path -ErrorAction Stop
+        $max = [Math]::Max(0, $MaxBytes)
+        if ($fileInfo.Length -gt $max) { $result.truncated = $true }
+
+        $toRead = 0
+        if ($max -gt 0) { $toRead = [int][Math]::Min($fileInfo.Length, $max) }
+        $bytes = [byte[]]@()
+        if ($toRead -gt 0) {
+            $bytes = New-Object 'System.Byte[]' $toRead
+            $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+            try {
+                $read = $fs.Read($bytes, 0, $toRead)
+                if ($read -lt $toRead) {
+                    if ($read -gt 0) { $bytes = $bytes[0..($read - 1)] } else { $bytes = [byte[]]@() }
+                }
+            } finally {
+                $fs.Dispose()
+            }
+        }
+
+        $encoding = Get-OutputEncoding -EncodingName $EncodingName
+        if ($bytes.Length -gt 0) {
+            $result.text = $encoding.GetString($bytes)
+        } else {
+            $result.text = ""
+        }
+    } catch {
+        $result.error = $_.Exception.Message
+    }
+
+    return $result
+}
+
 function global:Invoke-WorkrootCommand {
     $dryRun = $false
     $snapshot = $false
     $includeUser = $false
+    $captureOutput = $false
+    $rawNativeStderr = $false
+    $maxOutputBytes = 65536
+    $outputEncoding = "utf8"
     $all = @()
     if ($args) { $all = @($args) }
 
@@ -121,12 +187,36 @@ function global:Invoke-WorkrootCommand {
                 "-dryrun"   { $dryRun = $true; $i++; continue parse }
                 "-snapshot" { $snapshot = $true; $i++; continue parse }
                 "-includeuser" { $includeUser = $true; $i++; continue parse }
+                "-captureoutput" { $captureOutput = $true; $i++; continue parse }
+                "-nocapture" { $captureOutput = $false; $i++; continue parse }
+                "-rawnativestderr" { $rawNativeStderr = $true; $captureOutput = $true; $i++; continue parse }
+                "-maxoutputbytes" {
+                    if ($i + 1 -ge $all.Count) { throw "Missing value for -MaxOutputBytes" }
+                    $maxOutputBytes = [int]$all[$i + 1]
+                    $i += 2
+                    continue parse
+                }
+                "-outputencoding" {
+                    if ($i + 1 -ge $all.Count) { throw "Missing value for -OutputEncoding" }
+                    $outputEncoding = [string]$all[$i + 1]
+                    $i += 2
+                    continue parse
+                }
+                "--" {
+                    $i++
+                    break parse
+                }
                 default     { break parse }
             }
         }
         if ($i -gt 0) {
             if ($i -lt $all.Count) { $all = $all[$i..($all.Count - 1)] } else { $all = @() }
         }
+    }
+
+    if ($rawNativeStderr -and -not $captureOutput) {
+        Write-Host "Note: -RawNativeStderr requires -CaptureOutput; enabling output capture."
+        $captureOutput = $true
     }
 
     if ($all.Count -eq 0) {
@@ -170,20 +260,100 @@ function global:Invoke-WorkrootCommand {
     $runError = $null
     $success = $true
     $exitCode = 0
+    $outputInfo = $null
+    $stdoutFile = $null
+    $stderrFile = $null
+    $handledExitCode = $false
+    $nativeErrPrefVar = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
+    $nativeErrPrefOriginal = $null
+    if ($nativeErrPrefVar) {
+        $nativeErrPrefOriginal = $nativeErrPrefVar.Value
+        $PSNativeCommandUseErrorActionPreference = $false
+    }
 
     Push-Location $workroot
     try {
         $global:LASTEXITCODE = 0
-        & $exe @cmdArgs
-        $success = $?
-        if ($LASTEXITCODE -ne 0) { $exitCode = $LASTEXITCODE }
-        elseif (-not $success) { $exitCode = 1 }
+        $oldErrorAction = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            if ($captureOutput) {
+                $tempDir = $env:TEMP
+                if (-not $tempDir) { $tempDir = $workroot }
+                $stdoutFile = Join-Path $tempDir ("wr_stdout_{0}.tmp" -f ([Guid]::NewGuid().ToString("N")))
+                $stderrFile = Join-Path $tempDir ("wr_stderr_{0}.tmp" -f ([Guid]::NewGuid().ToString("N")))
+                if ($rawNativeStderr) {
+                    $argString = ""
+                    if ($cmdArgs -and $cmdArgs.Count -gt 0) {
+                        $argString = ($cmdArgs | ForEach-Object { Quote-CommandArg -Arg $_ }) -join ' '
+                    }
+                    $proc = Start-Process -FilePath $exe -ArgumentList $argString -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+                    $exitCode = $proc.ExitCode
+                    $success = ($exitCode -eq 0)
+                    $handledExitCode = $true
+                    $global:LASTEXITCODE = $exitCode
+                } else {
+                    & $exe @cmdArgs 1> $stdoutFile 2> $stderrFile
+                }
+            } else {
+                & $exe @cmdArgs
+            }
+        } finally {
+            $ErrorActionPreference = $oldErrorAction
+        }
+        if (-not $handledExitCode) {
+            $success = $?
+            if ($LASTEXITCODE -ne 0) { $exitCode = $LASTEXITCODE }
+            elseif (-not $success) { $exitCode = 1 }
+        }
     } catch {
         $success = $false
         $exitCode = 1
         $runError = $_.Exception.Message
     } finally {
+        if ($nativeErrPrefVar) { $PSNativeCommandUseErrorActionPreference = $nativeErrPrefOriginal }
         Pop-Location
+    }
+
+    if ($captureOutput) {
+        $outputErrors = @()
+        $stdoutResult = $null
+        $stderrResult = $null
+        if ($stdoutFile) { $stdoutResult = Read-OutputFile -Path $stdoutFile -MaxBytes $maxOutputBytes -EncodingName $outputEncoding }
+        if ($stderrFile) { $stderrResult = Read-OutputFile -Path $stderrFile -MaxBytes $maxOutputBytes -EncodingName $outputEncoding }
+
+        $stdoutText = ""
+        $stderrText = ""
+        $truncated = $false
+
+        if ($stdoutResult) {
+            $stdoutText = $stdoutResult.text
+            if ($stdoutResult.truncated) { $truncated = $true }
+            if ($stdoutResult.error) { $outputErrors += ("stdout: {0}" -f $stdoutResult.error) }
+        }
+        if ($stderrResult) {
+            $stderrText = $stderrResult.text
+            if ($stderrResult.truncated) { $truncated = $true }
+            if ($stderrResult.error) { $outputErrors += ("stderr: {0}" -f $stderrResult.error) }
+        }
+
+        $outputInfo = [ordered]@{
+            captured  = $true
+            truncated = [bool]$truncated
+            max_bytes = $maxOutputBytes
+            stdout    = $stdoutText
+            stderr    = $stderrText
+        }
+        if ($outputErrors.Count -gt 0) { $outputInfo["error"] = ($outputErrors -join "; ") }
+
+        if ($stdoutText) { [Console]::Out.Write($stdoutText) }
+        if ($stderrText) { [Console]::Error.Write($stderrText) }
+
+        foreach ($path in @($stdoutFile, $stderrFile)) {
+            if ($path -and (Test-Path -LiteralPath $path)) {
+                Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+            }
+        }
     }
 
     $stopwatch.Stop()
@@ -265,6 +435,7 @@ function global:Invoke-WorkrootCommand {
     }
 
     if ($runError) { $manifest["error"] = $runError }
+    if ($outputInfo) { $manifest["output"] = $outputInfo }
     if ($snapshot) {
         $manifest["snapshot"] = [ordered]@{
             before  = $before
