@@ -1,0 +1,12 @@
+Set-Content -Path .gitignore -Value @"
+# never commit the virtual environment
+.venv/
+
+# python junk
+__pycache__/
+*.pyc
+
+# OS junk
+.DS_Store
+Thumbs.db
+"@
