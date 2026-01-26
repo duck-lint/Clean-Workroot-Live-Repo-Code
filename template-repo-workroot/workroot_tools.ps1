@@ -337,6 +337,9 @@ function global:Invoke-WorkrootCommand {
             if ($stderrResult.error) { $outputErrors += ("stderr: {0}" -f $stderrResult.error) }
         }
 
+        if ($stdoutText) { $stdoutText = $stdoutText -replace "^\uFEFF","" }
+        if ($stderrText) { $stderrText = $stderrText -replace "^\uFEFF","" }
+
         $outputInfo = [ordered]@{
             captured  = $true
             truncated = [bool]$truncated
