@@ -23,13 +23,13 @@ Projects/
 
 ```powershell
 cd C:\Path\To\Projects\Project-A-workroot
-.oot.cmd init.ps1
+.boot.cmd init.ps1
 ```
 
 3) Start a session (every terminal):
 
 ```powershell
-.oot.cmd bootstrap.ps1
+.boot.cmd bootstrap.ps1
 ```
 
 ---
@@ -83,8 +83,8 @@ Three explicit layers:
 Usage:
 
 ```powershell
-.oot.cmd init.ps1
-.oot.cmd bootstrap.ps1
+.boot.cmd init.ps1
+.boot.cmd bootstrap.ps1
 ```
 
 Note: `boot.cmd init.ps1` starts a new session, runs init, then drops you into bootstrap automatically.
@@ -142,8 +142,8 @@ A transcript is started automatically in every bootstrap session.
 Disable or customize:
 
 ```powershell
-.oot.cmd bootstrap.ps1 -NoTranscript
-.oot.cmd bootstrap.ps1 -TranscriptDir C:\Path\To\Logs
+.boot.cmd bootstrap.ps1 -NoTranscript
+.boot.cmd bootstrap.ps1 -TranscriptDir C:\Path\To\Logs
 ```
 
 Notes:
@@ -183,7 +183,8 @@ wr -CaptureOutput -RawNativeStderr -- python -c "import sys; print('err', file=s
 ```
 
 Manifest output location:
-- `<workroot>\_workroot_manifestsun_<run_id>.json`
+- `<workroot>\_workroot_manifests
+un_<run_id>.json`
 
 ---
 
@@ -264,7 +265,7 @@ The repo stays clean and untouched.
 
 ### ImportError / module not found
 - Ensure `repo_marker.py` exists in the repo root
-- Re-run: `\.oot.cmd init.ps1`
+- Re-run: `\.boot.cmd init.ps1`
 
 ### Outputs appear in the repo
 You ran the command while your shell was in the repo.
@@ -278,15 +279,15 @@ cd C:\Path\To\Projects\Project-A-workroot
 You forgot to bootstrap this session.
 
 ```powershell
-.oot.cmd bootstrap.ps1
+.boot.cmd bootstrap.ps1
 ```
 
 ### Execution policy errors
 Always run through `boot.cmd`:
 
 ```powershell
-.oot.cmd bootstrap.ps1
-.oot.cmd init.ps1
+.boot.cmd bootstrap.ps1
+.boot.cmd init.ps1
 ```
 
 ---
