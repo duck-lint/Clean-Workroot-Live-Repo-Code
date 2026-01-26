@@ -169,7 +169,7 @@ function global:Invoke-WorkrootCommand {
     $captureOutput = $false
     $rawNativeStderr = $false
     $maxOutputBytes = 65536
-    $outputEncoding = "utf8"
+    $outputEncoding = if ($PSVersionTable.PSEdition -eq "Desktop") { "unicode" } else { "utf8" }
     $all = @()
     if ($args) { $all = @($args) }
 
@@ -346,8 +346,8 @@ function global:Invoke-WorkrootCommand {
         }
         if ($outputErrors.Count -gt 0) { $outputInfo["error"] = ($outputErrors -join "; ") }
 
-        if ($stdoutText) { [Console]::Out.Write($stdoutText) }
-        if ($stderrText) { [Console]::Error.Write($stderrText) }
+        if ($stdoutText) { Write-Host -NoNewline ($stdoutText -replace "^\uFEFF","") }
+        if ($stderrText) { Write-Host -NoNewline ($stderrText -replace "^\uFEFF","") }
 
         foreach ($path in @($stdoutFile, $stderrFile)) {
             if ($path -and (Test-Path -LiteralPath $path)) {
