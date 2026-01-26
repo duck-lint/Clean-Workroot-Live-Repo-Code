@@ -63,20 +63,49 @@ $WorkrootItem = Get-Item -LiteralPath $Workroot
 if (-not $DryRun) {
     Start-WorkrootTranscript -WorkrootPath $Workroot -NoTranscript:$NoTranscript -TranscriptDir $TranscriptDir
 }
+$script:TranscriptActive = $false
+$transcriptVar = Get-Variable -Name WorkrootTranscriptActive -Scope Global -ErrorAction SilentlyContinue
+if ($transcriptVar -and $transcriptVar.Value) { $script:TranscriptActive = $true }
+
+function Invoke-WorkrootNative {
+    param(
+        [Parameter(Mandatory = $true)][string]$Exe,
+        [string[]]$Args,
+        [switch]$CaptureText
+    )
+    if ($CaptureText) {
+        $output = $null
+        if ($script:TranscriptActive) {
+            $output = & $Exe @Args 2>&1
+            if ($output) { $output | Out-Host }
+        } else {
+            $output = & $Exe @Args
+        }
+        if ($null -eq $output) { return "" }
+        return ($output | Out-String).TrimEnd()
+    }
+
+    if ($script:TranscriptActive) {
+        & $Exe @Args 2>&1 | Out-Host
+    } else {
+        & $Exe @Args
+    }
+    return $null
+}
 
 $venvDir = Join-Path $Workroot ".venv"
 $activate = Join-Path $Workroot ".venv\Scripts\Activate.ps1"
 
 if (-not (Test-Path -LiteralPath $activate)) {
     Write-Host "No venv found. Creating .venv in workroot..."
-    py -m venv $venvDir
+    Invoke-WorkrootNative -Exe "py" -Args @("-m","venv",$venvDir)
     $req = Join-Path $Workroot "requirements.txt"
     if (Test-Path -LiteralPath $req) {
         $py = Join-Path $venvDir "Scripts\python.exe"
         Write-Host "Installing workroot requirements..."
-        & $py -m pip install --upgrade pip
+        Invoke-WorkrootNative -Exe $py -Args @("-m","pip","install","--upgrade","pip")
         if ($LASTEXITCODE -ne 0) { throw "pip failed during upgrade." }
-        & $py -m pip install -r $req
+        Invoke-WorkrootNative -Exe $py -Args @("-m","pip","install","-r",$req)
         if ($LASTEXITCODE -ne 0) { throw "pip failed installing workroot requirements." }
         Write-Host "Workroot requirements installed."
     }
@@ -102,7 +131,7 @@ if (-not (Test-Path -LiteralPath $RepoPath -PathType Container)) {
     throw "Repo path is not a folder: '$RepoPath'. Pass -RepoPath to a directory or rename the workroot."
 }
 
-$site = python -c "import site; print(site.getsitepackages()[0])"
+$site = Invoke-WorkrootNative -Exe "python" -Args @("-c","import site; print(site.getsitepackages()[0])") -CaptureText
 $pthPath = Join-Path $site $PthName
 
 if ($DryRun) {
@@ -118,7 +147,7 @@ Write-Host "Repo path :" $RepoPath
 
 # Verify: you need SOME importable module in the repo (e.g., repo_marker.py)
 try {
-    python -c "import repo_marker; print('repo_marker:', repo_marker.__file__)"
+    Invoke-WorkrootNative -Exe "python" -Args @("-c","import repo_marker; print('repo_marker:', repo_marker.__file__)")
     Write-Host "Import test: OK"
 } catch {
     Write-Warning "Import test failed. Ensure 'repo_marker.py' exists in the repo root (or adjust the test import)."

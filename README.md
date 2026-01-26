@@ -133,7 +133,7 @@ Do not name this file `test.py` (it collides with Python internals).
 
 ## Session Transcript (Default)
 
-A transcript is started automatically in every bootstrap session.
+A transcript is started automatically in every init and bootstrap session.
 
 - Default location: `<workroot>\_workroot_transcripts\`
 - File name: `session_yyyyMMdd_HHmmss_<shortid>.log`
@@ -168,6 +168,8 @@ Flags:
 - `-IncludeUser`       Include the username in the manifest
 - `-CaptureOutput`     Capture stdout/stderr into the manifest (opt-in)
 - `-NoCapture`         Force output capture off
+- `-TranscriptCapture` Force transcript-friendly capture on (default)
+- `-NoTranscriptCapture` Keep native output unwrapped (better interactivity; transcript may miss it)
 - `-RawNativeStderr`   Capture raw native stderr (no PowerShell wrapper). Implies -CaptureOutput
 - `-MaxOutputBytes N`  Limit captured bytes per stream (default 65536)
 - `-OutputEncoding X`  Decode captured output using a specific encoding
@@ -183,8 +185,7 @@ wr -CaptureOutput -RawNativeStderr -- python -c "import sys; print('err', file=s
 ```
 
 Manifest output location:
-- `<workroot>\_workroot_manifests
-un_<run_id>.json`
+- `<workroot>\_workroot_manifests\run_<run_id>.json`
 
 ---
 
@@ -212,6 +213,28 @@ Raw native stderr:
 - `-RawNativeStderr` uses `Start-Process -RedirectStandardError` to avoid PowerShell error-record wrappers
 - Best for non-interactive commands
 - You lose PowerShell error context, but stderr is clean
+
+---
+
+## Transcript Capture (Default)
+
+When a transcript is active, `wr` will route native stdout/stderr through the PowerShell host so the transcript can record it.
+
+Notes:
+- This improves transcript completeness without storing output in the manifest.
+- Some native tools detect piped output and may reduce interactivity (colors, progress, prompts).
+- Opt out per command with `-NoTranscriptCapture`.
+
+---
+
+## Console Codepage Quirks (Windows)
+
+If you see garbled characters in the host or transcript, your console codepage may not match the tool output encoding.
+
+Tips:
+- Try `chcp 65001` before starting a session (UTF-8 codepage).
+- In PowerShell, you can set `$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new()`.
+- For manifest capture, use `-OutputEncoding unicode` or `-OutputEncoding utf8` explicitly.
 
 ---
 
