@@ -27,11 +27,19 @@ function Ensure-EditableRepoInstall {
         return
     }
 
+    $reqPath = Join-Path $Workroot "requirements.txt"
+    $hasReq = Test-Path -LiteralPath $reqPath
+
     # Stamp lives inside the venv so it resets naturally if the venv is recreated.
     $stampPath = Join-Path $Workroot ".venv\.workroot_repo_editable_stamp.json"
 
     # Get current pyproject "version" via LastWriteTimeUtc (good enough for “did deps/metadata change?”).
     $pyprojectMtimeUtc = (Get-Item -LiteralPath $pyproject).LastWriteTimeUtc.ToString("o")
+    $requirementsMtimeUtc = $null
+    if ($hasReq) {
+        $requirementsMtimeUtc = (Get-Item -LiteralPath $reqPath).LastWriteTimeUtc.ToString("o")
+    }
+    $installMode = if ($hasReq) { "editable_no_deps" } else { "editable_with_deps" }
 
     $needsInstall = $Force
 
@@ -41,8 +49,20 @@ function Ensure-EditableRepoInstall {
         } else {
             try {
                 $stamp = Get-Content -LiteralPath $stampPath -Raw | ConvertFrom-Json
-                if ($stamp.repo_path -ne $RepoPath) { $needsInstall = $true }
-                elseif ($stamp.pyproject_mtime_utc -ne $pyprojectMtimeUtc) { $needsInstall = $true }
+                $requiredFields = @("repo_path","pyproject_mtime_utc","requirements_present","requirements_mtime_utc","install_mode")
+                foreach ($field in $requiredFields) {
+                    if (-not ($stamp.PSObject.Properties.Name -contains $field)) {
+                        $needsInstall = $true
+                        break
+                    }
+                }
+                if (-not $needsInstall) {
+                    if ($stamp.repo_path -ne $RepoPath) { $needsInstall = $true }
+                    elseif ($stamp.pyproject_mtime_utc -ne $pyprojectMtimeUtc) { $needsInstall = $true }
+                    elseif ([bool]$stamp.requirements_present -ne $hasReq) { $needsInstall = $true }
+                    elseif ($hasReq -and $stamp.requirements_mtime_utc -ne $requirementsMtimeUtc) { $needsInstall = $true }
+                    elseif ($stamp.install_mode -ne $installMode) { $needsInstall = $true }
+                }
             } catch {
                 # Corrupt/old stamp? Just reinstall.
                 $needsInstall = $true
@@ -51,17 +71,25 @@ function Ensure-EditableRepoInstall {
     }
 
     if (-not $needsInstall) {
-        Write-Host "Repo editable install: OK (stamp present, pyproject unchanged)"
+        Write-Host "Repo editable install: OK (stamp present, unchanged)"
         return
     }
 
-    Write-Host "Repo editable install: running pip install -e ..."
-    & python -m pip install -e $RepoPath
+    if ($hasReq) {
+        Write-Host "Repo editable install: running pip install -e --no-deps ..."
+        & python -m pip install -e $RepoPath --no-deps
+    } else {
+        Write-Host "Repo editable install: running pip install -e ..."
+        & python -m pip install -e $RepoPath
+    }
     if ($LASTEXITCODE -ne 0) { throw "pip install -e failed for repo: $RepoPath" }
 
     $stampObj = [pscustomobject]@{
         repo_path = $RepoPath
         pyproject_mtime_utc = $pyprojectMtimeUtc
+        requirements_present = $hasReq
+        requirements_mtime_utc = $requirementsMtimeUtc
+        install_mode = $installMode
         installed_at_utc = ([DateTime]::UtcNow.ToString("o"))
     }
     $stampObj | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stampPath -Encoding UTF8
@@ -142,8 +170,8 @@ if ($DryRun) {
 
 if ($NoBytecode) { $env:PYTHONDONTWRITEBYTECODE = "1" }
 $env:REPO = $RepoPath
-Ensure-EditableRepoInstall -RepoPath $env:REPO -Workroot $Workroot -Skip:$SkipRepoInstall -Force:$ForceRepoInstall
 Start-WorkrootTranscript -WorkrootPath $Workroot -NoTranscript:$NoTranscript -TranscriptDir $TranscriptDir
+Ensure-EditableRepoInstall -RepoPath $env:REPO -Workroot $Workroot -Skip:$SkipRepoInstall -Force:$ForceRepoInstall
 Write-Host "workroot:" $Workroot
 Write-Host "repo:    " $env:REPO
 Write-Host ""
