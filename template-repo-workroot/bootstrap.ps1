@@ -77,10 +77,10 @@ function Ensure-EditableRepoInstall {
 
     if ($hasReq) {
         Write-Host "Repo editable install: running pip install -e --no-deps ..."
-        & python -m pip install -e $RepoPath --no-deps
+        Invoke-WorkrootNative -Exe "python" -Args @("-m","pip","install","-e",$RepoPath,"--no-deps")
     } else {
         Write-Host "Repo editable install: running pip install -e ..."
-        & python -m pip install -e $RepoPath
+        Invoke-WorkrootNative -Exe "python" -Args @("-m","pip","install","-e",$RepoPath)
     }
     if ($LASTEXITCODE -ne 0) { throw "pip install -e failed for repo: $RepoPath" }
 
@@ -94,6 +94,39 @@ function Ensure-EditableRepoInstall {
     }
     $stampObj | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stampPath -Encoding UTF8
     Write-Host "Repo editable install: DONE (stamp updated)"
+}
+
+function Invoke-WorkrootNative {
+    param(
+        [Parameter(Mandatory = $true)][string]$Exe,
+        [string[]]$Args,
+        [switch]$CaptureText
+    )
+    $convertOutput = {
+        if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { $_ }
+    }
+    if ($CaptureText) {
+        $prevErrorAction = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        $output = $null
+        try {
+            $output = & $Exe @Args 2>&1 | ForEach-Object $convertOutput
+            if ($output) { $output | Out-Host }
+        } finally {
+            $ErrorActionPreference = $prevErrorAction
+        }
+        if ($null -eq $output) { return "" }
+        return ($output | Out-String).TrimEnd()
+    }
+
+    $prevErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Exe @Args 2>&1 | ForEach-Object $convertOutput | Out-Host
+    } finally {
+        $ErrorActionPreference = $prevErrorAction
+    }
+    return $null
 }
 
 function Start-WorkrootTranscript {

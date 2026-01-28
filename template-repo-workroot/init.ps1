@@ -73,22 +73,33 @@ function Invoke-WorkrootNative {
         [string[]]$Args,
         [switch]$CaptureText
     )
+    $convertOutput = {
+        if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { $_ }
+    }
     if ($CaptureText) {
+        $prevErrorAction = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         $output = $null
-        if ($script:TranscriptActive) {
-            $output = & $Exe @Args 2>&1
-            if ($output) { $output | Out-Host }
-        } else {
-            $output = & $Exe @Args
+        try {
+            $output = & $Exe @Args 2>&1 | ForEach-Object $convertOutput
+            if ($script:TranscriptActive -and $output) { $output | Out-Host }
+        } finally {
+            $ErrorActionPreference = $prevErrorAction
         }
         if ($null -eq $output) { return "" }
         return ($output | Out-String).TrimEnd()
     }
 
-    if ($script:TranscriptActive) {
-        & $Exe @Args 2>&1 | Out-Host
-    } else {
-        & $Exe @Args
+    $prevErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        if ($script:TranscriptActive) {
+            & $Exe @Args 2>&1 | ForEach-Object $convertOutput | Out-Host
+        } else {
+            & $Exe @Args 2>&1 | ForEach-Object $convertOutput
+        }
+    } finally {
+        $ErrorActionPreference = $prevErrorAction
     }
     return $null
 }
