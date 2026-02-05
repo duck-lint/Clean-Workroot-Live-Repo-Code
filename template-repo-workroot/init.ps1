@@ -104,6 +104,62 @@ function Invoke-WorkrootNative {
     return $null
 }
 
+function Get-NormalizedPythonVersion {
+    param(
+        [string]$Value
+    )
+    if ([string]::IsNullOrWhiteSpace($Value)) { return "" }
+    $m = [regex]::Match($Value, "\d+\.\d+")
+    if (-not $m.Success) { return "" }
+    return $m.Value
+}
+
+function Get-PreferredPythonFromSpecifier {
+    param(
+        [string]$Specifier
+    )
+    if ([string]::IsNullOrWhiteSpace($Specifier)) { return "" }
+    $patterns = @(
+        "==\s*([0-9]+\.[0-9]+)",
+        "~=\s*([0-9]+\.[0-9]+)",
+        ">=\s*([0-9]+\.[0-9]+)",
+        ">\s*([0-9]+\.[0-9]+)"
+    )
+    foreach ($pat in $patterns) {
+        $m = [regex]::Match($Specifier, $pat)
+        if ($m.Success) { return $m.Groups[1].Value }
+    }
+    return ""
+}
+
+function Get-RepoPythonVersion {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoPath
+    )
+    $override = Get-NormalizedPythonVersion -Value $env:WORKROOT_PY_VERSION
+    if ($override) { return $override }
+
+    $pyverPath = Join-Path $RepoPath ".python-version"
+    if (Test-Path -LiteralPath $pyverPath) {
+        $raw = (Get-Content -LiteralPath $pyverPath -Raw).Trim()
+        $ver = Get-NormalizedPythonVersion -Value $raw
+        if ($ver) { return $ver }
+    }
+
+    $pyproject = Join-Path $RepoPath "pyproject.toml"
+    if (Test-Path -LiteralPath $pyproject) {
+        $content = Get-Content -LiteralPath $pyproject -Raw
+        $m = [regex]::Match($content, '(?m)^\s*requires-python\s*=\s*[''"]([^''"]+)[''"]')
+        if ($m.Success) {
+            $spec = $m.Groups[1].Value
+            $ver = Get-PreferredPythonFromSpecifier -Specifier $spec
+            if ($ver) { return $ver }
+        }
+    }
+
+    return ""
+}
+
 function Ensure-WorkrootRequirementsInstalled {
     param(
         [Parameter(Mandatory = $true)][string]$Workroot
@@ -149,6 +205,57 @@ function Ensure-WorkrootRequirementsInstalled {
     Write-Host "Workroot requirements installed."
 }
 
+function Ensure-RepoRequirementsInstalled {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoPath,
+        [Parameter(Mandatory = $true)][string]$Workroot
+    )
+
+    $reqPath = Join-Path $RepoPath "requirements.txt"
+    if (-not (Test-Path -LiteralPath $reqPath)) {
+        return
+    }
+
+    $stampPath = Join-Path $Workroot ".venv\.workroot_repo_requirements_stamp.json"
+    $requirementsMtimeUtc = (Get-Item -LiteralPath $reqPath).LastWriteTimeUtc.ToString("o")
+
+    $needsInstall = $false
+    if (-not (Test-Path -LiteralPath $stampPath)) {
+        $needsInstall = $true
+    } else {
+        try {
+            $stamp = Get-Content -LiteralPath $stampPath -Raw | ConvertFrom-Json
+            $requiredFields = @("repo_path","requirements_mtime_utc")
+            foreach ($field in $requiredFields) {
+                if (-not ($stamp.PSObject.Properties.Name -contains $field)) {
+                    $needsInstall = $true
+                    break
+                }
+            }
+            if (-not $needsInstall) {
+                if ($stamp.repo_path -ne $RepoPath) { $needsInstall = $true }
+                elseif ($stamp.requirements_mtime_utc -ne $requirementsMtimeUtc) { $needsInstall = $true }
+            }
+        } catch {
+            $needsInstall = $true
+        }
+    }
+
+    if (-not $needsInstall) { return }
+
+    Write-Host "Installing repo requirements..."
+    Invoke-WorkrootNative -Exe "python" -Args @("-m","pip","install","-r",$reqPath)
+    if ($LASTEXITCODE -ne 0) { throw "pip failed installing repo requirements." }
+
+    $stampObj = [pscustomobject]@{
+        repo_path = $RepoPath
+        requirements_mtime_utc = $requirementsMtimeUtc
+        installed_at_utc = ([DateTime]::UtcNow.ToString("o"))
+    }
+    $stampObj | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stampPath -Encoding UTF8
+    Write-Host "Repo requirements installed."
+}
+
 function Ensure-EditableRepoInstall {
     param(
         [Parameter(Mandatory = $true)][string]$RepoPath,
@@ -165,7 +272,7 @@ function Ensure-EditableRepoInstall {
         return
     }
 
-    $reqPath = Join-Path $Workroot "requirements.txt"
+    $reqPath = Join-Path $RepoPath "requirements.txt"
     $hasReq = Test-Path -LiteralPath $reqPath
 
     # Stamp lives inside the venv so it resets naturally if the venv is recreated.
@@ -234,19 +341,6 @@ function Ensure-EditableRepoInstall {
     Write-Host "Repo editable install: DONE (stamp updated)"
 }
 
-$venvDir = Join-Path $Workroot ".venv"
-$activate = Join-Path $Workroot ".venv\Scripts\Activate.ps1"
-
-if (-not (Test-Path -LiteralPath $activate)) {
-    Write-Host "No venv found. Creating .venv in workroot..."
-    Invoke-WorkrootNative -Exe "py" -Args @("-m","venv",$venvDir)
-}
-
-. $activate
-
-$env:PYTHONDONTWRITEBYTECODE = "1"
-Ensure-WorkrootRequirementsInstalled -Workroot $Workroot
-
 if ([string]::IsNullOrWhiteSpace($RepoPath)) {
     $leaf = $WorkrootItem.Name
     if ($leaf -notlike "*-workroot") {
@@ -263,7 +357,35 @@ if (-not (Test-Path -LiteralPath $RepoPath -PathType Container)) {
     throw "Repo path is not a folder: '$RepoPath'. Pass -RepoPath to a directory or rename the workroot."
 }
 
+$PreferredPythonVersion = Get-RepoPythonVersion -RepoPath $RepoPath
+
+$venvDir = Join-Path $Workroot ".venv"
+$activate = Join-Path $Workroot ".venv\Scripts\Activate.ps1"
+
+if (-not (Test-Path -LiteralPath $activate)) {
+    if ($PreferredPythonVersion) {
+        Write-Host ("No venv found. Creating .venv in workroot (Python {0})..." -f $PreferredPythonVersion)
+        $pyArg = "-{0}" -f $PreferredPythonVersion
+        Invoke-WorkrootNative -Exe "py" -Args @($pyArg, "-m","venv",$venvDir)
+    } else {
+        Write-Host "No venv found. Creating .venv in workroot..."
+        Invoke-WorkrootNative -Exe "py" -Args @("-m","venv",$venvDir)
+    }
+}
+
+. $activate
+
+$env:PYTHONDONTWRITEBYTECODE = "1"
+if ($PreferredPythonVersion) {
+    $pyVersion = Invoke-WorkrootNative -Exe "python" -Args @("-c","import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") -CaptureText
+    if ($pyVersion -and ($pyVersion -ne $PreferredPythonVersion)) {
+        throw ("Venv Python {0} does not match required {1}. Delete .venv and rerun init." -f $pyVersion, $PreferredPythonVersion)
+    }
+}
+Ensure-WorkrootRequirementsInstalled -Workroot $Workroot
+
 $env:REPO = $RepoPath
+Ensure-RepoRequirementsInstalled -RepoPath $env:REPO -Workroot $Workroot
 Ensure-EditableRepoInstall -RepoPath $env:REPO -Workroot $Workroot
 
 $site = Invoke-WorkrootNative -Exe "python" -Args @("-c","import site; print(site.getsitepackages()[0])") -CaptureText
